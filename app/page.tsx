@@ -10,6 +10,22 @@ import {
 } from "lucide-react";
 
 type Project = {
+  type EstimateItem = {
+  id: number;
+  name: string;
+  unit: string;
+  quantity: number;
+  price: number;
+  category: "Материал" | "Работа";
+};
+
+type Estimate = {
+  id: number;
+  name: string;
+  projectId: number | null;
+  date: string;
+  items: EstimateItem[];
+};
   id: number;
   name: string;
   client: string;
