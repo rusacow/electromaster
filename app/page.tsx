@@ -9,8 +9,18 @@ import {
   ShieldCheck, X, Ruler, Pencil, Trash2, ArrowLeft
 } from "lucide-react";
 
-type Project = {
-  type EstimateItem = {
+  type Project = {
+  id: number;
+  name: string;
+  client: string;
+  status: string;
+  progress: number;
+  address: string;
+  description: string;
+  createdAt: string;
+};
+
+type EstimateItem = {
   id: number;
   name: string;
   unit: string;
@@ -25,15 +35,6 @@ type Estimate = {
   projectId: number | null;
   date: string;
   items: EstimateItem[];
-};
-  id: number;
-  name: string;
-  client: string;
-  status: string;
-  progress: number;
-  address: string;
-  description: string;
-  createdAt: string;
 };
 
 const navigation = [
