@@ -94,6 +94,7 @@ export default function Home() {
   if (typeof window === "undefined") return "Рабочий стол";
   return localStorage.getItem("electromaster-active") || "Рабочий стол";
 });
+  
   const [search, setSearch] = useState("");
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
@@ -931,7 +932,9 @@ function exportEstimatePDF(estimate: Estimate) {
     };
 
     const Icon = icons[active] || FileText;
-
+  if (!loaded) {
+    return null;
+  }
     return (
       <>
         <div className="welcome">
