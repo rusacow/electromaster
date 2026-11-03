@@ -280,8 +280,7 @@ export default function FloorPlanEditor({
     setNotice("План удалён");
   };
 
-  // Правильное преобразование координат:
-  // координаты экрана -> SVG -> координаты чертежа в миллиметрах.
+  // Координаты экрана -> SVG -> координаты чертежа в миллиметрах.
   const screenToPlan = (
     clientX: number,
     clientY: number
@@ -313,36 +312,45 @@ export default function FloorPlanEditor({
     };
   };
 
+  // Исправленная привязка к сетке и существующим концам стен.
   const snapWithExisting = (point: Point): Point => {
     if (!currentPlan) return point;
 
-    let result = snapPoint(
+    const result = snapPoint(
       point,
       gridSize,
       snapEnabled
     );
 
-    if (snapEnabled) {
-      const endpoints = currentPlan.walls.flatMap(wall => [
-        wall.start,
-        wall.end
-      ]);
+    if (!snapEnabled) {
+      return result;
+    }
 
-      let nearest: Point | null = null;
-      let nearestDistance = 180;
+    const endpoints: Point[] = currentPlan.walls.flatMap(wall => [
+      wall.start,
+      wall.end
+    ]);
 
-      endpoints.forEach(endpoint => {
-        const distance = distanceBetween(endpoint, result);
+    let nearestIndex = -1;
+    let nearestDistance = 180;
 
-        if (distance < nearestDistance) {
-          nearest = endpoint;
-          nearestDistance = distance;
-        }
-      });
+    for (let i = 0; i < endpoints.length; i++) {
+      const endpoint = endpoints[i];
+      const distance = distanceBetween(endpoint, result);
 
-      if (nearest) {
-        result = { ...nearest };
+      if (distance < nearestDistance) {
+        nearestIndex = i;
+        nearestDistance = distance;
       }
+    }
+
+    if (nearestIndex >= 0) {
+      const nearest = endpoints[nearestIndex];
+
+      return {
+        x: nearest.x,
+        y: nearest.y
+      };
     }
 
     return result;
