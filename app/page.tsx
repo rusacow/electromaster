@@ -90,7 +90,10 @@ const money = (value: number) =>
   }).format(value);
 
 export default function Home() {
-  const [active, setActive] = useState("Рабочий стол");
+  const [active, setActive] = useState(() => {
+  if (typeof window === "undefined") return "Рабочий стол";
+  return localStorage.getItem("electromaster-active") || "Рабочий стол";
+});
   const [search, setSearch] = useState("");
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
@@ -99,8 +102,17 @@ export default function Home() {
   const [modal, setModal] = useState(false);
   const [estimateModal, setEstimateModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [selectedEstimateId, setSelectedEstimateId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(() => {
+  if (typeof window === "undefined") return null;
+  const value = localStorage.getItem("electromaster-selected-project");
+  return value ? Number(value) : null;
+});
+
+const [selectedEstimateId, setSelectedEstimateId] = useState<number | null>(() => {
+  if (typeof window === "undefined") return null;
+  const value = localStorage.getItem("electromaster-selected-estimate");
+  return value ? Number(value) : null;
+});
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
 
   const [name, setName] = useState("");
@@ -150,6 +162,25 @@ export default function Home() {
     if (!loaded) return;
     localStorage.setItem("electromaster-estimates", JSON.stringify(estimates));
   }, [estimates, loaded]);
+  useEffect(() => {
+  localStorage.setItem("electromaster-active", active);
+}, [active]);
+
+useEffect(() => {
+  if (selectedId === null) {
+    localStorage.removeItem("electromaster-selected-project");
+  } else {
+    localStorage.setItem("electromaster-selected-project", String(selectedId));
+  }
+}, [selectedId]);
+
+useEffect(() => {
+  if (selectedEstimateId === null) {
+    localStorage.removeItem("electromaster-selected-estimate");
+  } else {
+    localStorage.setItem("electromaster-selected-estimate", String(selectedEstimateId));
+  }
+}, [selectedEstimateId]);
 
   const filtered = projects.filter(project =>
     `${project.name} ${project.client} ${project.address}`
