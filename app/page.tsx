@@ -9,6 +9,8 @@ import {
   ShieldCheck, X, Ruler, Pencil, Trash2, ArrowLeft
 } from "lucide-react";
 
+import FloorPlanEditor from "./components/FloorPlanEditor";
+
 type Project = {
   id: number;
   name: string;
@@ -121,7 +123,7 @@ export default function Home() {
   const [itemCategory, setItemCategory] =
     useState<"Материал" | "Работа">("Материал");
 
-  // Сначала восстанавливаем все сохранённые данные.
+  // Восстановление сохранённых данных.
   useEffect(() => {
     try {
       const savedProjects = localStorage.getItem("electromaster-projects");
@@ -160,22 +162,25 @@ export default function Home() {
     setLoaded(true);
   }, []);
 
-  // Сохраняем данные только после завершения первоначальной загрузки.
+  // Сохранение проектов.
   useEffect(() => {
     if (!loaded) return;
     localStorage.setItem("electromaster-projects", JSON.stringify(projects));
   }, [projects, loaded]);
 
+  // Сохранение смет.
   useEffect(() => {
     if (!loaded) return;
     localStorage.setItem("electromaster-estimates", JSON.stringify(estimates));
   }, [estimates, loaded]);
 
+  // Сохранение текущего раздела.
   useEffect(() => {
     if (!loaded) return;
     localStorage.setItem("electromaster-active", active);
   }, [active, loaded]);
 
+  // Сохранение выбранного проекта.
   useEffect(() => {
     if (!loaded) return;
 
@@ -186,6 +191,7 @@ export default function Home() {
     }
   }, [selectedId, loaded]);
 
+  // Сохранение выбранной сметы.
   useEffect(() => {
     if (!loaded) return;
 
@@ -477,81 +483,41 @@ export default function Home() {
         <meta charset="UTF-8">
         <title>${escapeHtml(estimate.name)}</title>
         <style>
-          body {
-            font-family: Arial, sans-serif;
-            color: #222;
-            padding: 30px;
-            font-size: 12px;
-          }
+          body { font-family: Arial, sans-serif; color: #222; padding: 30px; font-size: 12px; }
           h1 { font-size: 24px; }
           h2 { font-size: 18px; }
           .info { line-height: 1.8; margin-bottom: 25px; }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-          }
-          th, td {
-            border: 1px solid #ccc;
-            padding: 9px 6px;
-            text-align: left;
-          }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ccc; padding: 9px 6px; text-align: left; }
           th { background: #edf3f8; }
-          .total {
-            margin-top: 25px;
-            margin-left: auto;
-            width: 280px;
-            line-height: 2;
-          }
-          .grand {
-            font-size: 20px;
-            font-weight: bold;
-            border-top: 2px solid #333;
-            padding-top: 8px;
-          }
-          @media print {
-            body { padding: 0; }
-          }
+          .total { margin-top: 25px; margin-left: auto; width: 280px; line-height: 2; }
+          .grand { font-size: 20px; font-weight: bold; border-top: 2px solid #333; padding-top: 8px; }
+          @media print { body { padding: 0; } }
         </style>
       </head>
       <body>
         <h1>ElectroMaster</h1>
         <h2>${escapeHtml(estimate.name)}</h2>
-
         <div class="info">
           <b>Проект:</b> ${escapeHtml(project?.name || "Без привязки к проекту")}<br>
           <b>Заказчик:</b> ${escapeHtml(project?.client || "Не указан")}<br>
           <b>Адрес:</b> ${escapeHtml(project?.address || "Не указан")}<br>
           <b>Дата:</b> ${escapeHtml(estimate.date)}
         </div>
-
         <table>
           <thead>
-            <tr>
-              <th>№</th>
-              <th>Тип</th>
-              <th>Наименование</th>
-              <th>Ед.</th>
-              <th>Кол-во</th>
-              <th>Цена</th>
-              <th>Сумма</th>
-            </tr>
+            <tr><th>№</th><th>Тип</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
-
         <div class="total">
           Материалы: <b>${money(materials)}</b><br>
           Работы: <b>${money(works)}</b><br>
           <div class="grand">Итого: ${money(estimateTotal(estimate))}</div>
         </div>
-
         <p style="margin-top:50px">Подпись исполнителя: ____________________</p>
         <p>Подпись заказчика: ____________________</p>
-
-        <script>
-          window.onload = () => window.print();
-        </script>
+        <script>window.onload = () => window.print();</script>
       </body>
       </html>
     `);
@@ -576,15 +542,10 @@ export default function Home() {
         <div className="toolbar">
           <div className="search-box">
             <Search size={19} />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Поиск по названию, заказчику или адресу..."
-            />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Поиск по названию, заказчику или адресу..." />
           </div>
-          <button className="reset-button" onClick={() => setSearch("")}>
-            Сбросить поиск
-          </button>
+          <button className="reset-button" onClick={() => setSearch("")}>Сбросить поиск</button>
         </div>
 
         <div className="stats">
@@ -914,7 +875,6 @@ export default function Home() {
 
   function renderOtherSection() {
     const descriptions: Record<string, string> = {
-      "Чертежи и планы": "Здесь будет редактор планов помещений с размерами, розетками, выключателями, светильниками и другими электрическими точками.",
       "Инженерные расчёты": "Здесь будут расчёты кабеля, автоматических выключателей, УЗО и дифавтоматов. Результаты будут предварительными и потребуют инженерной проверки.",
       "Каталог материалов": "Здесь будет каталог кабелей, автоматов, УЗО, розеток, выключателей и других материалов с возможностью добавлять собственные позиции.",
       "Документы": "Здесь будут храниться документы и файлы, связанные с проектами.",
@@ -922,7 +882,6 @@ export default function Home() {
     };
 
     const icons: Record<string, React.ElementType> = {
-      "Чертежи и планы": Ruler,
       "Инженерные расчёты": Calculator,
       "Каталог материалов": Cable,
       "Документы": FileText,
@@ -967,10 +926,7 @@ export default function Home() {
     );
   }
 
-  // Не показываем страницу до восстановления сохранённого состояния.
-  if (!loaded) {
-    return null;
-  }
+  if (!loaded) return null;
 
   return (
     <div className="app-shell">
@@ -1041,9 +997,18 @@ export default function Home() {
               ? renderDashboard()
               : active === "Мои проекты"
                 ? renderProjects()
-                : active === "Сметы"
-                  ? renderEstimates()
-                  : renderOtherSection()}
+                : active === "Чертежи и планы"
+                  ? (
+                      <FloorPlanEditor
+                        projects={projects.map(project => ({
+                          id: project.id,
+                          name: project.name
+                        }))}
+                      />
+                    )
+                  : active === "Сметы"
+                    ? renderEstimates()
+                    : renderOtherSection()}
 
           <footer>© 2026 ElectroMaster <span>Платформа для электромонтажников</span></footer>
         </section>
