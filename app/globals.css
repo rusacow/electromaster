@@ -191,25 +191,3 @@ footer { display: flex; justify-content: space-between; color: #9aa6b5; font-siz
   .close { display: block; }
 }
 .hamb { display: none; }
-"""
-}
-
-for rel, data in content.items():
-    path = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(json.dumps(data, ensure_ascii=False, indent=2) if isinstance(data, dict) else data)
-
-zip_path = "/mnt/data/ElectroMaster-Web-0.1.0.zip"
-if os.path.exists(zip_path):
-    os.remove(zip_path)
-with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-    for base, _, files in os.walk(root):
-        for fn in files:
-            full = os.path.join(base, fn)
-            z.write(full, os.path.relpath(full, root))
-with zipfile.ZipFile(zip_path) as z:
-    assert z.testzip() is None
-    print("Архив создан. Файлов:", len(z.namelist()))
-    print("\n".join(z.namelist()))
-print("Размер:", os.path.getsize(zip_path), "байт")
