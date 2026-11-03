@@ -29,7 +29,7 @@ import {
   ArrowLeft
 } from "lucide-react";
 
-import FloorPlanEditor from "./components/FloorPlanEditor";
+import FloorPlanEditor from "./FloorPlanEditor";
 
 type Project = {
   id: number;
