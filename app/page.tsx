@@ -341,6 +341,177 @@ export default function Home() {
       (sum, item) => sum + item.quantity * item.price, 0
     );
   }
+  function exportEstimateExcel(estimate: Estimate) {
+  const project = projects.find(p => p.id === estimate.projectId);
+
+  const rows = [
+    ["№", "Категория", "Наименование", "Ед. изм.", "Количество", "Цена", "Сумма"],
+    ...estimate.items.map((item, index) => [
+      index + 1,
+      item.category,
+      item.name,
+      item.unit,
+      item.quantity,
+      item.price,
+      Number((item.quantity * item.price).toFixed(2))
+    ]),
+    ["", "", "", "", "", "ИТОГО", estimateTotal(estimate)]
+  ];
+
+  const csv = [
+    ["ElectroMaster — Смета"],
+    ["Название", estimate.name],
+    ["Проект", project?.name || "Без привязки к проекту"],
+    ["Заказчик", project?.client || "Не указан"],
+    ["Адрес", project?.address || "Не указан"],
+    ["Дата", estimate.date],
+    [],
+    ...rows
+  ].map(row =>
+    row.map(value => `"${String(value ?? "").replace(/"/g, '""')}"`).join(";")
+  ).join("\r\n");
+
+  const blob = new Blob(["\uFEFF" + csv], {
+    type: "text/csv;charset=utf-8;"
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const safeName = estimate.name.replace(/[\\/:*?"<>|]/g, "_");
+
+  link.href = url;
+  link.download = `${safeName}.csv`;
+  link.click();
+
+  URL.revokeObjectURL(url);
+}
+
+function exportEstimatePDF(estimate: Estimate) {
+  const project = projects.find(p => p.id === estimate.projectId);
+  const printWindow = window.open("", "_blank");
+
+  if (!printWindow) {
+    alert("Разрешите всплывающие окна для этого сайта и повторите экспорт.");
+    return;
+  }
+
+  const escapeHtml = (value: string) =>
+    value.replace(/[&<>"']/g, char => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    })[char] || char);
+
+  const rows = estimate.items.map((item, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${escapeHtml(item.category)}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(item.unit)}</td>
+      <td>${item.quantity}</td>
+      <td>${money(item.price)}</td>
+      <td>${money(item.quantity * item.price)}</td>
+    </tr>
+  `).join("");
+
+  const materials = estimate.items
+    .filter(item => item.category === "Материал")
+    .reduce((sum, item) => sum + item.quantity * item.price, 0);
+
+  const works = estimate.items
+    .filter(item => item.category === "Работа")
+    .reduce((sum, item) => sum + item.quantity * item.price, 0);
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+      <meta charset="UTF-8">
+      <title>${escapeHtml(estimate.name)}</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          color: #222;
+          padding: 30px;
+          font-size: 12px;
+        }
+        h1 { font-size: 24px; }
+        h2 { font-size: 18px; }
+        .info { line-height: 1.8; margin-bottom: 25px; }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 20px;
+        }
+        th, td {
+          border: 1px solid #ccc;
+          padding: 9px 6px;
+          text-align: left;
+        }
+        th { background: #edf3f8; }
+        .total {
+          margin-top: 25px;
+          margin-left: auto;
+          width: 280px;
+          line-height: 2;
+        }
+        .grand {
+          font-size: 20px;
+          font-weight: bold;
+          border-top: 2px solid #333;
+          padding-top: 8px;
+        }
+        @media print {
+          body { padding: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <h1>ElectroMaster</h1>
+      <h2>${escapeHtml(estimate.name)}</h2>
+
+      <div class="info">
+        <b>Проект:</b> ${escapeHtml(project?.name || "Без привязки к проекту")}<br>
+        <b>Заказчик:</b> ${escapeHtml(project?.client || "Не указан")}<br>
+        <b>Адрес:</b> ${escapeHtml(project?.address || "Не указан")}<br>
+        <b>Дата:</b> ${escapeHtml(estimate.date)}
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Тип</th>
+            <th>Наименование</th>
+            <th>Ед.</th>
+            <th>Кол-во</th>
+            <th>Цена</th>
+            <th>Сумма</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+
+      <div class="total">
+        Материалы: <b>${money(materials)}</b><br>
+        Работы: <b>${money(works)}</b><br>
+        <div class="grand">Итого: ${money(estimateTotal(estimate))}</div>
+      </div>
+
+      <p style="margin-top:50px">Подпись исполнителя: ____________________</p>
+      <p>Подпись заказчика: ____________________</p>
+
+      <script>
+        window.onload = () => window.print();
+      </script>
+    </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+}
 
   function renderProjects() {
     return (
@@ -538,10 +709,29 @@ export default function Home() {
               <h1>{selectedEstimate.name}</h1>
               <p>{linkedProject ? `Проект: ${linkedProject.name}` : "Без привязки к проекту"} · Дата: {selectedEstimate.date}</p>
             </div>
-            <button className="reset-button" onClick={() => deleteEstimate(selectedEstimate.id)}
-              style={{ color: "#c0392b" }}>
-              <Trash2 size={17} /> Удалить смету
-            </button>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+  <button
+    className="reset-button"
+    onClick={() => exportEstimatePDF(selectedEstimate)}
+  >
+    PDF
+  </button>
+
+  <button
+    className="reset-button"
+    onClick={() => exportEstimateExcel(selectedEstimate)}
+  >
+    Excel
+  </button>
+
+  <button
+    className="reset-button"
+    onClick={() => deleteEstimate(selectedEstimate.id)}
+    style={{ color: "#c0392b" }}
+  >
+    <Trash2 size={17} /> Удалить смету
+  </button>
+</div>
           </div>
 
           <div className="stats">
