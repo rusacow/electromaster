@@ -307,6 +307,14 @@ export default function FloorPlanEditor({
       }
       return;
     }
+    const equipmentTool = EQUIPMENT_CATALOG.find(
+  item => item.type === activeTool
+);
+
+if (equipmentTool) {
+  addEquipment(equipmentTool.type, point);
+  return;
+}
 
     if (activeTool === "select") {
       clearSelection();
