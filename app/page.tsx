@@ -179,7 +179,6 @@ function getNextId(items: { id: number }[]) {
 function csvEscape(value: unknown) {
   let text = String(value ?? "");
 
-  // Защита от выполнения формул при открытии CSV в Excel.
   if (/^[\s]*[=+\-@]/.test(text)) {
     text = `'${text}`;
   }
@@ -221,6 +220,11 @@ export default function Home() {
 
   const [itemCategory, setItemCategory] =
     useState<"Материал" | "Работа">("Материал");
+
+  // Переход на отдельную страницу инженерных расчётов.
+  function openCalculations() {
+    window.location.href = "/calculations";
+  }
 
   // Загрузка сохранённых данных.
   useEffect(() => {
@@ -1127,7 +1131,7 @@ export default function Home() {
               <b>Инженерные расчёты</b>
               <p>Предварительный подбор кабеля и защиты.</p>
 
-              <button onClick={() => setActive("Инженерные расчёты")}>
+              <button onClick={openCalculations}>
                 Перейти <ChevronRight size={15} />
               </button>
             </div>
@@ -1879,6 +1883,11 @@ export default function Home() {
                     : "nav-item"
                 }
                 onClick={() => {
+                  if (item.name === "Инженерные расчёты") {
+                    openCalculations();
+                    return;
+                  }
+
                   setActive(item.name);
                   setSelectedId(null);
                   setSelectedEstimateId(null);
