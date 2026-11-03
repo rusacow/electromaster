@@ -2,11 +2,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { FormEvent, ElementType } from "react";
+
 import {
-  Activity, Bell, BookOpen, Calculator, Cable, ChevronDown,
-  ChevronRight, ClipboardList, FileText, FolderKanban, House,
-  LayoutDashboard, LifeBuoy, Plus, Search, Settings,
-  ShieldCheck, X, Ruler, Pencil, Trash2, ArrowLeft
+  Activity,
+  Bell,
+  BookOpen,
+  Calculator,
+  Cable,
+  ChevronDown,
+  ChevronRight,
+  ClipboardList,
+  FileText,
+  FolderKanban,
+  House,
+  LayoutDashboard,
+  LifeBuoy,
+  Plus,
+  Search,
+  Settings,
+  ShieldCheck,
+  X,
+  Ruler,
+  Pencil,
+  Trash2,
+  ArrowLeft
 } from "lucide-react";
 
 import FloorPlanEditor from "./components/FloorPlanEditor";
@@ -83,24 +103,102 @@ const initialProjects: Project[] = [
   }
 ];
 
-const statuses = ["Новый", "Расчёт", "В работе", "На паузе", "Завершён"];
+const statuses = [
+  "Новый",
+  "Расчёт",
+  "В работе",
+  "На паузе",
+  "Завершён"
+];
 
 const money = (value: number) =>
   new Intl.NumberFormat("ru-RU", {
     style: "currency",
     currency: "RUB",
     maximumFractionDigits: 2
-  }).format(value);
+  }).format(Number.isFinite(value) ? value : 0);
+
+const parseNumber = (value: string) => {
+  if (!value.trim()) return 0;
+  return Number(value.replace(",", "."));
+};
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+function isValidProject(value: unknown): value is Project {
+  if (!value || typeof value !== "object") return false;
+
+  const project = value as Project;
+
+  return (
+    Number.isFinite(project.id) &&
+    typeof project.name === "string" &&
+    typeof project.client === "string" &&
+    typeof project.status === "string" &&
+    Number.isFinite(project.progress) &&
+    typeof project.address === "string" &&
+    typeof project.description === "string" &&
+    typeof project.createdAt === "string"
+  );
+}
+
+function isValidEstimateItem(value: unknown): value is EstimateItem {
+  if (!value || typeof value !== "object") return false;
+
+  const item = value as EstimateItem;
+
+  return (
+    Number.isFinite(item.id) &&
+    typeof item.name === "string" &&
+    typeof item.unit === "string" &&
+    Number.isFinite(item.quantity) &&
+    Number.isFinite(item.price) &&
+    (item.category === "Материал" || item.category === "Работа")
+  );
+}
+
+function isValidEstimate(value: unknown): value is Estimate {
+  if (!value || typeof value !== "object") return false;
+
+  const estimate = value as Estimate;
+
+  return (
+    Number.isFinite(estimate.id) &&
+    typeof estimate.name === "string" &&
+    (estimate.projectId === null || Number.isFinite(estimate.projectId)) &&
+    typeof estimate.date === "string" &&
+    Array.isArray(estimate.items) &&
+    estimate.items.every(isValidEstimateItem)
+  );
+}
+
+function getNextId(items: { id: number }[]) {
+  return Math.max(Date.now(), ...items.map(item => item.id + 1));
+}
+
+function csvEscape(value: unknown) {
+  let text = String(value ?? "");
+
+  // Защита от выполнения формул при открытии CSV в Excel.
+  if (/^[\s]*[=+\-@]/.test(text)) {
+    text = `'${text}`;
+  }
+
+  return `"${text.replace(/"/g, '""')}"`;
+}
 
 export default function Home() {
   const [active, setActive] = useState("Рабочий стол");
   const [search, setSearch] = useState("");
+
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
+
   const [loaded, setLoaded] = useState(false);
 
   const [modal, setModal] = useState(false);
   const [estimateModal, setEstimateModal] = useState(false);
+
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedEstimateId, setSelectedEstimateId] = useState<number | null>(null);
@@ -120,90 +218,139 @@ export default function Home() {
   const [itemUnit, setItemUnit] = useState("шт.");
   const [itemQuantity, setItemQuantity] = useState("1");
   const [itemPrice, setItemPrice] = useState("0");
+
   const [itemCategory, setItemCategory] =
     useState<"Материал" | "Работа">("Материал");
 
-  // Восстановление сохранённых данных.
+  // Загрузка сохранённых данных.
   useEffect(() => {
-    try {
-      const savedProjects = localStorage.getItem("electromaster-projects");
-      const savedEstimates = localStorage.getItem("electromaster-estimates");
-      const savedActive = localStorage.getItem("electromaster-active");
-      const savedSelectedProject = localStorage.getItem("electromaster-selected-project");
-      const savedSelectedEstimate = localStorage.getItem("electromaster-selected-estimate");
-
-      if (savedProjects) {
-        const parsed = JSON.parse(savedProjects);
-        if (Array.isArray(parsed)) setProjects(parsed);
+    const readStorage = (key: string): unknown => {
+      try {
+        const value = localStorage.getItem(key);
+        return value ? JSON.parse(value) : null;
+      } catch {
+        console.warn(`Не удалось прочитать данные: ${key}`);
+        return null;
       }
+    };
 
-      if (savedEstimates) {
-        const parsed = JSON.parse(savedEstimates);
-        if (Array.isArray(parsed)) setEstimates(parsed);
-      }
+    const savedProjects = readStorage("electromaster-projects");
+    const savedEstimates = readStorage("electromaster-estimates");
+    const savedActive = readStorage("electromaster-active");
+    const savedSelectedProject = readStorage("electromaster-selected-project");
+    const savedSelectedEstimate = readStorage("electromaster-selected-estimate");
 
-      if (savedActive && navigation.some(item => item.name === savedActive)) {
-        setActive(savedActive);
-      }
+    if (Array.isArray(savedProjects)) {
+      setProjects(savedProjects.filter(isValidProject));
+    }
 
-      if (savedSelectedProject) {
-        const id = Number(savedSelectedProject);
-        if (Number.isFinite(id)) setSelectedId(id);
-      }
+    if (Array.isArray(savedEstimates)) {
+      setEstimates(savedEstimates.filter(isValidEstimate));
+    }
 
-      if (savedSelectedEstimate) {
-        const id = Number(savedSelectedEstimate);
-        if (Number.isFinite(id)) setSelectedEstimateId(id);
-      }
-    } catch {
-      console.warn("Не удалось загрузить сохранённые данные");
+    if (
+      typeof savedActive === "string" &&
+      navigation.some(item => item.name === savedActive)
+    ) {
+      setActive(savedActive);
+    }
+
+    if (
+      savedSelectedProject !== null &&
+      savedSelectedProject !== undefined
+    ) {
+      const id = Number(savedSelectedProject);
+      if (Number.isFinite(id)) setSelectedId(id);
+    }
+
+    if (
+      savedSelectedEstimate !== null &&
+      savedSelectedEstimate !== undefined
+    ) {
+      const id = Number(savedSelectedEstimate);
+      if (Number.isFinite(id)) setSelectedEstimateId(id);
     }
 
     setLoaded(true);
   }, []);
 
-  // Сохранение проектов.
+  // Сохранение данных.
   useEffect(() => {
     if (!loaded) return;
-    localStorage.setItem("electromaster-projects", JSON.stringify(projects));
+
+    try {
+      localStorage.setItem(
+        "electromaster-projects",
+        JSON.stringify(projects)
+      );
+    } catch {
+      console.error("Не удалось сохранить проекты.");
+      alert("Не удалось сохранить проекты. Возможно, закончилось место в браузере.");
+    }
   }, [projects, loaded]);
 
-  // Сохранение смет.
   useEffect(() => {
     if (!loaded) return;
-    localStorage.setItem("electromaster-estimates", JSON.stringify(estimates));
+
+    try {
+      localStorage.setItem(
+        "electromaster-estimates",
+        JSON.stringify(estimates)
+      );
+    } catch {
+      console.error("Не удалось сохранить сметы.");
+      alert("Не удалось сохранить сметы. Возможно, закончилось место в браузере.");
+    }
   }, [estimates, loaded]);
 
-  // Сохранение текущего раздела.
   useEffect(() => {
     if (!loaded) return;
-    localStorage.setItem("electromaster-active", active);
+
+    try {
+      localStorage.setItem("electromaster-active", active);
+    } catch {
+      console.error("Не удалось сохранить текущий раздел.");
+    }
   }, [active, loaded]);
 
-  // Сохранение выбранного проекта.
   useEffect(() => {
     if (!loaded) return;
 
-    if (selectedId === null) {
-      localStorage.removeItem("electromaster-selected-project");
-    } else {
-      localStorage.setItem("electromaster-selected-project", String(selectedId));
+    try {
+      if (selectedId === null) {
+        localStorage.removeItem("electromaster-selected-project");
+      } else {
+        localStorage.setItem(
+          "electromaster-selected-project",
+          String(selectedId)
+        );
+      }
+    } catch {
+      console.error("Не удалось сохранить выбранный проект.");
     }
   }, [selectedId, loaded]);
 
-  // Сохранение выбранной сметы.
   useEffect(() => {
     if (!loaded) return;
 
-    if (selectedEstimateId === null) {
-      localStorage.removeItem("electromaster-selected-estimate");
-    } else {
-      localStorage.setItem("electromaster-selected-estimate", String(selectedEstimateId));
+    try {
+      if (selectedEstimateId === null) {
+        localStorage.removeItem("electromaster-selected-estimate");
+      } else {
+        localStorage.setItem(
+          "electromaster-selected-estimate",
+          String(selectedEstimateId)
+        );
+      }
+    } catch {
+      console.error("Не удалось сохранить выбранную смету.");
     }
   }, [selectedEstimateId, loaded]);
 
-  const selectedProject = projects.find(p => p.id === selectedId);
-  const selectedEstimate = estimates.find(e => e.id === selectedEstimateId);
+  const selectedProject = projects.find(project => project.id === selectedId);
+  const selectedEstimate = estimates.find(
+    estimate => estimate.id === selectedEstimateId
+  );
 
   const filtered = projects.filter(project =>
     `${project.name} ${project.client} ${project.address}`
@@ -211,6 +358,7 @@ export default function Home() {
       .includes(search.toLowerCase())
   );
 
+  // Работа с проектами.
   function openCreate() {
     setEditingId(null);
     setName("");
@@ -233,88 +381,145 @@ export default function Home() {
     setModal(true);
   }
 
-  function saveProject(e: React.FormEvent) {
+  function saveProject(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
     if (!name.trim()) return;
 
     if (editingId !== null) {
-      setProjects(current => current.map(project =>
-        project.id === editingId
-          ? {
-              ...project,
-              name: name.trim(),
-              client: client.trim() || "Не указан",
-              address: address.trim(),
-              description: description.trim(),
-              status,
-              progress
-            }
-          : project
-      ));
+      setProjects(current =>
+        current.map(project =>
+          project.id === editingId
+            ? {
+                ...project,
+                name: name.trim(),
+                client: client.trim() || "Не указан",
+                address: address.trim(),
+                description: description.trim(),
+                status,
+                progress: Math.max(0, Math.min(100, progress))
+              }
+            : project
+        )
+      );
     } else {
       const project: Project = {
-        id: Date.now(),
+        id: getNextId(projects),
         name: name.trim(),
         client: client.trim() || "Не указан",
         address: address.trim(),
         description: description.trim(),
         status,
-        progress,
-        createdAt: new Date().toISOString().slice(0, 10)
+        progress: 0,
+        createdAt: today()
       };
+
       setProjects(current => [project, ...current]);
     }
 
     setModal(false);
+    setEditingId(null);
   }
 
   function deleteProject(id: number) {
-    if (!window.confirm("Удалить этот проект? Это действие нельзя отменить.")) return;
-    setProjects(current => current.filter(project => project.id !== id));
+    if (
+      !window.confirm(
+        "Удалить этот проект? Связанные сметы останутся, но будут отвязаны от проекта."
+      )
+    ) {
+      return;
+    }
+
+    setProjects(current =>
+      current.filter(project => project.id !== id)
+    );
+
+    setEstimates(current =>
+      current.map(estimate =>
+        estimate.projectId === id
+          ? { ...estimate, projectId: null }
+          : estimate
+      )
+    );
+
     setSelectedId(null);
   }
 
   function changeStatus(id: number, value: string) {
-    setProjects(current => current.map(project =>
-      project.id === id ? { ...project, status: value } : project
-    ));
+    setProjects(current =>
+      current.map(project =>
+        project.id === id
+          ? { ...project, status: value }
+          : project
+      )
+    );
   }
 
   function changeProgress(id: number, value: number) {
-    setProjects(current => current.map(project =>
-      project.id === id
-        ? { ...project, progress: Math.max(0, Math.min(100, value)) }
-        : project
-    ));
+    setProjects(current =>
+      current.map(project =>
+        project.id === id
+          ? {
+              ...project,
+              progress: Math.max(0, Math.min(100, value))
+            }
+          : project
+      )
+    );
   }
 
+  // Работа со сметами.
   function openNewEstimate() {
     setEstimateName("");
-    setEstimateProjectId(projects.length ? String(projects[0].id) : "");
+    setEstimateProjectId(
+      projects.length ? String(projects[0].id) : ""
+    );
     setEstimateModal(true);
   }
 
-  function saveEstimate(e: React.FormEvent) {
+  function saveEstimate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
     if (!estimateName.trim()) return;
 
+    const projectId = estimateProjectId
+      ? Number(estimateProjectId)
+      : null;
+
+    if (
+      projectId !== null &&
+      !projects.some(project => project.id === projectId)
+    ) {
+      alert("Выбранный проект не найден.");
+      return;
+    }
+
     const estimate: Estimate = {
-      id: Date.now(),
+      id: getNextId(estimates),
       name: estimateName.trim(),
-      projectId: estimateProjectId ? Number(estimateProjectId) : null,
-      date: new Date().toISOString().slice(0, 10),
+      projectId,
+      date: today(),
       items: []
     };
 
     setEstimates(current => [estimate, ...current]);
     setEstimateModal(false);
     setSelectedEstimateId(estimate.id);
+    resetItemForm();
   }
 
   function deleteEstimate(id: number) {
     if (!window.confirm("Удалить эту смету?")) return;
-    setEstimates(current => current.filter(e => e.id !== id));
-    setSelectedEstimateId(null);
+
+    setEstimates(current =>
+      current.filter(estimate => estimate.id !== id)
+    );
+
+    if (selectedEstimateId === id) {
+      setSelectedEstimateId(null);
+    }
+
+    resetItemForm();
   }
 
   function resetItemForm() {
@@ -335,12 +540,13 @@ export default function Home() {
     setItemCategory(item.category);
   }
 
-  function saveEstimateItem(e: React.FormEvent) {
+  function saveEstimateItem(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
     if (!selectedEstimate || !itemName.trim()) return;
 
-    const quantity = Number(itemQuantity.replace(",", "."));
-    const price = Number(itemPrice.replace(",", "."));
+    const quantity = parseNumber(itemQuantity);
+    const price = parseNumber(itemPrice);
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
       alert("Количество должно быть больше нуля.");
@@ -353,7 +559,9 @@ export default function Home() {
     }
 
     const item: EstimateItem = {
-      id: editingItemId ?? Date.now(),
+      id: editingItemId ?? getNextId(
+        selectedEstimate.items
+      ),
       name: itemName.trim(),
       unit: itemUnit.trim() || "шт.",
       quantity,
@@ -361,40 +569,57 @@ export default function Home() {
       category: itemCategory
     };
 
-    setEstimates(current => current.map(estimate => {
-      if (estimate.id !== selectedEstimate.id) return estimate;
+    setEstimates(current =>
+      current.map(estimate => {
+        if (estimate.id !== selectedEstimate.id) return estimate;
 
-      const items = editingItemId !== null
-        ? estimate.items.map(existing => existing.id === editingItemId ? item : existing)
-        : [...estimate.items, item];
+        const items =
+          editingItemId !== null
+            ? estimate.items.map(existing =>
+                existing.id === editingItemId ? item : existing
+              )
+            : [...estimate.items, item];
 
-      return { ...estimate, items };
-    }));
+        return { ...estimate, items };
+      })
+    );
 
     resetItemForm();
   }
 
   function deleteEstimateItem(itemId: number) {
     if (!selectedEstimate) return;
+
     if (!window.confirm("Удалить эту позицию?")) return;
 
-    setEstimates(current => current.map(estimate =>
-      estimate.id === selectedEstimate.id
-        ? { ...estimate, items: estimate.items.filter(item => item.id !== itemId) }
-        : estimate
-    ));
+    setEstimates(current =>
+      current.map(estimate =>
+        estimate.id === selectedEstimate.id
+          ? {
+              ...estimate,
+              items: estimate.items.filter(item => item.id !== itemId)
+            }
+          : estimate
+      )
+    );
 
-    if (editingItemId === itemId) resetItemForm();
+    if (editingItemId === itemId) {
+      resetItemForm();
+    }
   }
 
   function estimateTotal(estimate: Estimate) {
     return estimate.items.reduce(
-      (sum, item) => sum + item.quantity * item.price, 0
+      (sum, item) => sum + item.quantity * item.price,
+      0
     );
   }
 
+  // Экспорт CSV для Excel.
   function exportEstimateExcel(estimate: Estimate) {
-    const project = projects.find(p => p.id === estimate.projectId);
+    const project = projects.find(
+      project => project.id === estimate.projectId
+    );
 
     const rows = [
       ["№", "Категория", "Наименование", "Ед. изм.", "Количество", "Цена", "Сумма"],
@@ -410,7 +635,7 @@ export default function Home() {
       ["", "", "", "", "", "ИТОГО", estimateTotal(estimate)]
     ];
 
-    const csv = [
+    const data = [
       ["ElectroMaster — Смета"],
       ["Название", estimate.name],
       ["Проект", project?.name || "Без привязки к проекту"],
@@ -419,31 +644,50 @@ export default function Home() {
       ["Дата", estimate.date],
       [],
       ...rows
-    ].map(row =>
-      row.map(value => `"${String(value ?? "").replace(/"/g, '""')}"`).join(";")
-    ).join("\r\n");
+    ];
 
-    const blob = new Blob(["\uFEFF" + csv], {
-      type: "text/csv;charset=utf-8;"
-    });
+    const csv = data
+      .map(row =>
+        row.map(csvEscape).join(";")
+      )
+      .join("\r\n");
+
+    const blob = new Blob(
+      ["\uFEFF" + csv],
+      { type: "text/csv;charset=utf-8;" }
+    );
 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    const safeName = estimate.name.replace(/[\\/:*?"<>|]/g, "_");
+
+    const safeName = estimate.name
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .trim() || "Смета";
 
     link.href = url;
     link.download = `${safeName}.csv`;
-    link.click();
 
-    URL.revokeObjectURL(url);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
   }
 
+  // Экспорт PDF через окно печати браузера.
   function exportEstimatePDF(estimate: Estimate) {
-    const project = projects.find(p => p.id === estimate.projectId);
+    const project = projects.find(
+      project => project.id === estimate.projectId
+    );
+
     const printWindow = window.open("", "_blank");
 
     if (!printWindow) {
-      alert("Разрешите всплывающие окна для этого сайта и повторите экспорт.");
+      alert(
+        "Разрешите всплывающие окна для этого сайта и повторите экспорт."
+      );
       return;
     }
 
@@ -470,61 +714,180 @@ export default function Home() {
 
     const materials = estimate.items
       .filter(item => item.category === "Материал")
-      .reduce((sum, item) => sum + item.quantity * item.price, 0);
+      .reduce(
+        (sum, item) => sum + item.quantity * item.price,
+        0
+      );
 
     const works = estimate.items
       .filter(item => item.category === "Работа")
-      .reduce((sum, item) => sum + item.quantity * item.price, 0);
+      .reduce(
+        (sum, item) => sum + item.quantity * item.price,
+        0
+      );
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html lang="ru">
-      <head>
-        <meta charset="UTF-8">
-        <title>${escapeHtml(estimate.name)}</title>
-        <style>
-          body { font-family: Arial, sans-serif; color: #222; padding: 30px; font-size: 12px; }
-          h1 { font-size: 24px; }
-          h2 { font-size: 18px; }
-          .info { line-height: 1.8; margin-bottom: 25px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #ccc; padding: 9px 6px; text-align: left; }
-          th { background: #edf3f8; }
-          .total { margin-top: 25px; margin-left: auto; width: 280px; line-height: 2; }
-          .grand { font-size: 20px; font-weight: bold; border-top: 2px solid #333; padding-top: 8px; }
-          @media print { body { padding: 0; } }
-        </style>
-      </head>
-      <body>
-        <h1>ElectroMaster</h1>
-        <h2>${escapeHtml(estimate.name)}</h2>
-        <div class="info">
-          <b>Проект:</b> ${escapeHtml(project?.name || "Без привязки к проекту")}<br>
-          <b>Заказчик:</b> ${escapeHtml(project?.client || "Не указан")}<br>
-          <b>Адрес:</b> ${escapeHtml(project?.address || "Не указан")}<br>
-          <b>Дата:</b> ${escapeHtml(estimate.date)}
-        </div>
-        <table>
-          <thead>
-            <tr><th>№</th><th>Тип</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <div class="total">
-          Материалы: <b>${money(materials)}</b><br>
-          Работы: <b>${money(works)}</b><br>
-          <div class="grand">Итого: ${money(estimateTotal(estimate))}</div>
-        </div>
-        <p style="margin-top:50px">Подпись исполнителя: ____________________</p>
-        <p>Подпись заказчика: ____________________</p>
-        <script>window.onload = () => window.print();</script>
-      </body>
-      </html>
-    `);
+    try {
+      printWindow.document.open();
 
-    printWindow.document.close();
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>${escapeHtml(estimate.name)}</title>
+
+          <style>
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              font-family: Arial, sans-serif;
+              color: #222;
+              padding: 30px;
+              font-size: 12px;
+            }
+
+            h1 {
+              font-size: 24px;
+              margin-bottom: 8px;
+            }
+
+            h2 {
+              font-size: 18px;
+            }
+
+            .brand {
+              color: #18845a;
+              font-weight: bold;
+              font-size: 14px;
+              margin-bottom: 20px;
+            }
+
+            .info {
+              line-height: 1.8;
+              margin-bottom: 25px;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+            }
+
+            th, td {
+              border: 1px solid #ccc;
+              padding: 9px 6px;
+              text-align: left;
+            }
+
+            th {
+              background: #edf3f8;
+            }
+
+            .total {
+              margin-top: 25px;
+              margin-left: auto;
+              width: 280px;
+              line-height: 2;
+            }
+
+            .grand {
+              font-size: 20px;
+              font-weight: bold;
+              border-top: 2px solid #333;
+              padding-top: 8px;
+            }
+
+            .signatures {
+              margin-top: 50px;
+              line-height: 3;
+            }
+
+            @media print {
+              body {
+                padding: 0;
+              }
+
+              tr {
+                page-break-inside: avoid;
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="brand">ELECTROMASTER</div>
+
+          <h1>Смета</h1>
+          <h2>${escapeHtml(estimate.name)}</h2>
+
+          <div class="info">
+            <b>Проект:</b>
+            ${escapeHtml(project?.name || "Без привязки к проекту")}<br>
+
+            <b>Заказчик:</b>
+            ${escapeHtml(project?.client || "Не указан")}<br>
+
+            <b>Адрес:</b>
+            ${escapeHtml(project?.address || "Не указан")}<br>
+
+            <b>Дата:</b>
+            ${escapeHtml(estimate.date)}
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>№</th>
+                <th>Тип</th>
+                <th>Наименование</th>
+                <th>Ед.</th>
+                <th>Кол-во</th>
+                <th>Цена</th>
+                <th>Сумма</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${rows || '<tr><td colspan="7">Позиции отсутствуют</td></tr>'}
+            </tbody>
+          </table>
+
+          <div class="total">
+            Материалы: <b>${money(materials)}</b><br>
+            Работы: <b>${money(works)}</b><br>
+
+            <div class="grand">
+              Итого: ${money(estimateTotal(estimate))}
+            </div>
+          </div>
+
+          <div class="signatures">
+            Подпись исполнителя: ____________________<br>
+            Подпись заказчика: ____________________
+          </div>
+
+          <script>
+            window.onload = () => {
+              window.focus();
+              window.print();
+            };
+          </script>
+        </body>
+        </html>
+      `);
+
+      printWindow.document.close();
+    } catch (error) {
+      console.error("Ошибка подготовки PDF:", error);
+      printWindow.close();
+      alert("Не удалось подготовить документ для печати.");
+    }
   }
 
+  // Раздел проектов.
   function renderProjects() {
     return (
       <>
@@ -532,8 +895,11 @@ export default function Home() {
           <div>
             <span className="eyebrow">РАБОЧАЯ ОБЛАСТЬ</span>
             <h1>Мои проекты</h1>
-            <p>Создавайте объекты и управляйте ходом электромонтажных работ.</p>
+            <p>
+              Создавайте объекты и управляйте ходом электромонтажных работ.
+            </p>
           </div>
+
           <button className="primary-button" onClick={openCreate}>
             <Plus size={19} /> Создать проект
           </button>
@@ -542,42 +908,101 @@ export default function Home() {
         <div className="toolbar">
           <div className="search-box">
             <Search size={19} />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Поиск по названию, заказчику или адресу..." />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Поиск по названию, заказчику или адресу..."
+            />
           </div>
-          <button className="reset-button" onClick={() => setSearch("")}>Сбросить поиск</button>
+
+          <button
+            className="reset-button"
+            onClick={() => setSearch("")}
+          >
+            Сбросить поиск
+          </button>
         </div>
 
         <div className="stats">
-          <article><span>Всего проектов</span><strong>{projects.length.toString().padStart(2, "0")}</strong><small>Все объекты</small></article>
-          <article><span>В работе</span><strong>{projects.filter(p => p.status === "В работе").length.toString().padStart(2, "0")}</strong><small>Активные объекты</small></article>
-          <article><span>На паузе</span><strong>{projects.filter(p => p.status === "На паузе").length.toString().padStart(2, "0")}</strong><small>Приостановленные</small></article>
-          <article><span>Завершено</span><strong>{projects.filter(p => p.status === "Завершён").length.toString().padStart(2, "0")}</strong><small>Готовые объекты</small></article>
+          <article>
+            <span>Всего проектов</span>
+            <strong>{projects.length.toString().padStart(2, "0")}</strong>
+            <small>Все объекты</small>
+          </article>
+
+          <article>
+            <span>В работе</span>
+            <strong>
+              {projects.filter(p => p.status === "В работе").length
+                .toString().padStart(2, "0")}
+            </strong>
+            <small>Активные объекты</small>
+          </article>
+
+          <article>
+            <span>На паузе</span>
+            <strong>
+              {projects.filter(p => p.status === "На паузе").length
+                .toString().padStart(2, "0")}
+            </strong>
+            <small>Приостановленные</small>
+          </article>
+
+          <article>
+            <span>Завершено</span>
+            <strong>
+              {projects.filter(p => p.status === "Завершён").length
+                .toString().padStart(2, "0")}
+            </strong>
+            <small>Готовые объекты</small>
+          </article>
         </div>
 
         <div className="project-list">
           {filtered.map(project => (
-            <article className="project-row" key={project.id}
-              onClick={() => setSelectedId(project.id)} style={{ cursor: "pointer" }}>
+            <article
+              className="project-row"
+              key={project.id}
+              onClick={() => setSelectedId(project.id)}
+              style={{ cursor: "pointer" }}
+            >
               <div className="project-icon"><House /></div>
+
               <div className="project-name">
                 <b>{project.name}</b>
-                <small>{project.client}{project.address ? ` · ${project.address}` : ""}</small>
+                <small>
+                  {project.client}
+                  {project.address ? ` · ${project.address}` : ""}
+                </small>
               </div>
+
               <div className="progress">
-                <span>Готовность <b>{project.progress}%</b></span>
-                <div className="progress-track"><i style={{ width: `${project.progress}%` }} /></div>
+                <span>
+                  Готовность <b>{project.progress}%</b>
+                </span>
+
+                <div className="progress-track">
+                  <i style={{ width: `${project.progress}%` }} />
+                </div>
               </div>
-              <span className={`status ${project.status === "Завершён" ? "done" : ""}`}>{project.status}</span>
+
+              <span className={`status ${project.status === "Завершён" ? "done" : ""}`}>
+                {project.status}
+              </span>
+
               <ChevronRight className="row-arrow" size={19} />
             </article>
           ))}
-          {!filtered.length && <p className="empty">Проекты не найдены.</p>}
+
+          {!filtered.length && (
+            <p className="empty">Проекты не найдены.</p>
+          )}
         </div>
       </>
     );
   }
 
+  // Рабочий стол.
   function renderDashboard() {
     return (
       <>
@@ -585,8 +1010,12 @@ export default function Home() {
           <div>
             <span className="eyebrow">РАБОЧАЯ ПАНЕЛЬ</span>
             <h1>Добро пожаловать в ElectroMaster</h1>
-            <p>Всё необходимое для организации электромонтажных проектов — в одном месте.</p>
+            <p>
+              Всё необходимое для организации электромонтажных проектов —
+              в одном месте.
+            </p>
           </div>
+
           <button className="primary-button" onClick={openCreate}>
             <Plus size={19} /> Создать проект
           </button>
@@ -594,54 +1023,154 @@ export default function Home() {
 
         <div className="notice">
           <ShieldCheck size={23} />
+
           <div>
             <b>Демонстрационная версия</b>
-            <p>Проекты и сметы сохраняются в браузере на этом устройстве. Регистрация, облачная база и синхронизация будут подключены отдельно.</p>
+            <p>
+              Проекты и сметы сохраняются в браузере на этом устройстве.
+              Регистрация, облачная база и синхронизация будут подключены отдельно.
+            </p>
           </div>
         </div>
 
         <div className="stats">
-          <article><span>Всего проектов</span><strong>{projects.length.toString().padStart(2, "0")}</strong><small>В списке проектов</small></article>
-          <article><span>В работе</span><strong>{projects.filter(p => p.status === "В работе").length.toString().padStart(2, "0")}</strong><small>Активные объекты</small></article>
-          <article><span>Завершено</span><strong>{projects.filter(p => p.status === "Завершён").length.toString().padStart(2, "0")}</strong><small>Готовые объекты</small></article>
-          <article><span>Всего смет</span><strong>{estimates.length.toString().padStart(2, "0")}</strong><small>Созданные документы</small></article>
+          <article>
+            <span>Всего проектов</span>
+            <strong>{projects.length.toString().padStart(2, "0")}</strong>
+            <small>В списке проектов</small>
+          </article>
+
+          <article>
+            <span>В работе</span>
+            <strong>
+              {projects.filter(p => p.status === "В работе").length
+                .toString().padStart(2, "0")}
+            </strong>
+            <small>Активные объекты</small>
+          </article>
+
+          <article>
+            <span>Завершено</span>
+            <strong>
+              {projects.filter(p => p.status === "Завершён").length
+                .toString().padStart(2, "0")}
+            </strong>
+            <small>Готовые объекты</small>
+          </article>
+
+          <article>
+            <span>Всего смет</span>
+            <strong>{estimates.length.toString().padStart(2, "0")}</strong>
+            <small>Созданные документы</small>
+          </article>
         </div>
 
         <div className="section-heading">
-          <div><h2>Последние проекты</h2><p>Быстрый доступ к текущим объектам</p></div>
-          <button className="text-button" onClick={() => setActive("Мои проекты")}>Все проекты <ChevronRight size={17} /></button>
+          <div>
+            <h2>Последние проекты</h2>
+            <p>Быстрый доступ к текущим объектам</p>
+          </div>
+
+          <button
+            className="text-button"
+            onClick={() => setActive("Мои проекты")}
+          >
+            Все проекты <ChevronRight size={17} />
+          </button>
         </div>
 
         <div className="project-list">
           {projects.slice(0, 3).map(project => (
-            <article className="project-row" key={project.id}
-              onClick={() => setSelectedId(project.id)} style={{ cursor: "pointer" }}>
+            <article
+              className="project-row"
+              key={project.id}
+              onClick={() => setSelectedId(project.id)}
+              style={{ cursor: "pointer" }}
+            >
               <div className="project-icon"><House /></div>
-              <div className="project-name"><b>{project.name}</b><small>{project.client}</small></div>
-              <div className="progress">
-                <span>Готовность <b>{project.progress}%</b></span>
-                <div className="progress-track"><i style={{ width: `${project.progress}%` }} /></div>
+
+              <div className="project-name">
+                <b>{project.name}</b>
+                <small>{project.client}</small>
               </div>
-              <span className={`status ${project.status === "Завершён" ? "done" : ""}`}>{project.status}</span>
+
+              <div className="progress">
+                <span>
+                  Готовность <b>{project.progress}%</b>
+                </span>
+
+                <div className="progress-track">
+                  <i style={{ width: `${project.progress}%` }} />
+                </div>
+              </div>
+
+              <span className={`status ${project.status === "Завершён" ? "done" : ""}`}>
+                {project.status}
+              </span>
+
               <ChevronRight className="row-arrow" size={19} />
             </article>
           ))}
-          {!projects.length && <p className="empty">Пока нет проектов. Создайте первый объект.</p>}
+
+          {!projects.length && (
+            <p className="empty">
+              Пока нет проектов. Создайте первый объект.
+            </p>
+          )}
         </div>
 
         <div className="shortcuts">
-          <article><Calculator /><div><b>Инженерные расчёты</b><p>Предварительный подбор кабеля и защиты.</p><button onClick={() => setActive("Инженерные расчёты")}>Перейти <ChevronRight size={15} /></button></div></article>
-          <article><Ruler /><div><b>Планы помещений</b><p>Схемы, размеры и размещение оборудования.</p><button onClick={() => setActive("Чертежи и планы")}>Перейти <ChevronRight size={15} /></button></div></article>
-          <article><BookOpen /><div><b>База знаний</b><p>Справочные материалы и инструкции.</p><button onClick={() => setActive("Обучение")}>Перейти <ChevronRight size={15} /></button></div></article>
+          <article>
+            <Calculator />
+
+            <div>
+              <b>Инженерные расчёты</b>
+              <p>Предварительный подбор кабеля и защиты.</p>
+
+              <button onClick={() => setActive("Инженерные расчёты")}>
+                Перейти <ChevronRight size={15} />
+              </button>
+            </div>
+          </article>
+
+          <article>
+            <Ruler />
+
+            <div>
+              <b>Планы помещений</b>
+              <p>Схемы, размеры и размещение оборудования.</p>
+
+              <button onClick={() => setActive("Чертежи и планы")}>
+                Перейти <ChevronRight size={15} />
+              </button>
+            </div>
+          </article>
+
+          <article>
+            <BookOpen />
+
+            <div>
+              <b>База знаний</b>
+              <p>Справочные материалы и инструкции.</p>
+
+              <button onClick={() => setActive("Обучение")}>
+                Перейти <ChevronRight size={15} />
+              </button>
+            </div>
+          </article>
         </div>
       </>
     );
   }
 
+  // Карточка проекта.
   function renderProjectDetails(project: Project) {
     return (
       <>
-        <button className="text-button" onClick={() => setSelectedId(null)}>
+        <button
+          className="text-button"
+          onClick={() => setSelectedId(null)}
+        >
           <ArrowLeft size={17} /> Назад к проектам
         </button>
 
@@ -651,13 +1180,18 @@ export default function Home() {
             <h1>{project.name}</h1>
             <p>Заказчик: {project.client}</p>
           </div>
-          <button className="primary-button" onClick={() => openEdit(project)}>
+
+          <button
+            className="primary-button"
+            onClick={() => openEdit(project)}
+          >
             <Pencil size={17} /> Редактировать
           </button>
         </div>
 
         <div className="notice">
           <House size={23} />
+
           <div>
             <b>Информация об объекте</b>
             <p>{project.description || "Описание не добавлено."}</p>
@@ -667,46 +1201,101 @@ export default function Home() {
         </div>
 
         <div className="stats">
-          <article><span>Статус проекта</span><strong style={{ fontSize: 20 }}>{project.status}</strong><small>Текущий этап</small></article>
-          <article><span>Готовность</span><strong>{project.progress}%</strong><small>Выполнение работ</small></article>
+          <article>
+            <span>Статус проекта</span>
+            <strong style={{ fontSize: 20 }}>{project.status}</strong>
+            <small>Текущий этап</small>
+          </article>
+
+          <article>
+            <span>Готовность</span>
+            <strong>{project.progress}%</strong>
+            <small>Выполнение работ</small>
+          </article>
         </div>
 
         <div className="section-heading">
-          <div><h2>Управление проектом</h2><p>Изменение статуса и готовности объекта</p></div>
+          <div>
+            <h2>Управление проектом</h2>
+            <p>Изменение статуса и готовности объекта</p>
+          </div>
         </div>
 
         <div className="notice">
           <div style={{ width: "100%" }}>
-            <label style={{ display: "block", marginBottom: 8 }}>Статус</label>
-            <select value={project.status} onChange={e => changeStatus(project.id, e.target.value)}
-              style={{ padding: 12, borderRadius: 9, width: "100%", maxWidth: 350 }}>
-              {statuses.map(value => <option key={value}>{value}</option>)}
+            <label style={{ display: "block", marginBottom: 8 }}>
+              Статус
+            </label>
+
+            <select
+              value={project.status}
+              onChange={e => changeStatus(project.id, e.target.value)}
+              style={{
+                padding: 12,
+                borderRadius: 9,
+                width: "100%",
+                maxWidth: 350
+              }}
+            >
+              {statuses.map(value => (
+                <option key={value}>{value}</option>
+              ))}
             </select>
-            <label style={{ display: "block", margin: "18px 0 8px" }}>Готовность: {project.progress}%</label>
-            <input type="range" min="0" max="100" value={project.progress}
-              onChange={e => changeProgress(project.id, Number(e.target.value))}
-              style={{ width: "100%", maxWidth: 450 }} />
+
+            <label style={{ display: "block", margin: "18px 0 8px" }}>
+              Готовность: {project.progress}%
+            </label>
+
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={project.progress}
+              onChange={e =>
+                changeProgress(project.id, Number(e.target.value))
+              }
+              style={{ width: "100%", maxWidth: 450 }}
+            />
           </div>
         </div>
 
-        <button className="reset-button" onClick={() => deleteProject(project.id)}
-          style={{ color: "#c0392b", marginTop: 20 }}>
+        <button
+          className="reset-button"
+          onClick={() => deleteProject(project.id)}
+          style={{ color: "#c0392b", marginTop: 20 }}
+        >
           <Trash2 size={17} /> Удалить проект
         </button>
       </>
     );
   }
 
+  // Раздел смет.
   function renderEstimates() {
     if (selectedEstimate) {
-      const linkedProject = projects.find(p => p.id === selectedEstimate.projectId);
+      const linkedProject = projects.find(
+        project => project.id === selectedEstimate.projectId
+      );
+
       const total = estimateTotal(selectedEstimate);
-      const materials = selectedEstimate.items.filter(i => i.category === "Материал");
-      const works = selectedEstimate.items.filter(i => i.category === "Работа");
+
+      const materials = selectedEstimate.items.filter(
+        item => item.category === "Материал"
+      );
+
+      const works = selectedEstimate.items.filter(
+        item => item.category === "Работа"
+      );
 
       return (
         <>
-          <button className="text-button" onClick={() => { setSelectedEstimateId(null); resetItemForm(); }}>
+          <button
+            className="text-button"
+            onClick={() => {
+              setSelectedEstimateId(null);
+              resetItemForm();
+            }}
+          >
             <ArrowLeft size={17} /> Назад к сметам
           </button>
 
@@ -714,72 +1303,221 @@ export default function Home() {
             <div>
               <span className="eyebrow">СМЕТА</span>
               <h1>{selectedEstimate.name}</h1>
-              <p>{linkedProject ? `Проект: ${linkedProject.name}` : "Без привязки к проекту"} · Дата: {selectedEstimate.date}</p>
+              <p>
+                {linkedProject
+                  ? `Проект: ${linkedProject.name}`
+                  : "Без привязки к проекту"}
+                {" · "}Дата: {selectedEstimate.date}
+              </p>
             </div>
+
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button className="reset-button" onClick={() => exportEstimatePDF(selectedEstimate)}>PDF</button>
-              <button className="reset-button" onClick={() => exportEstimateExcel(selectedEstimate)}>Excel</button>
-              <button className="reset-button" onClick={() => deleteEstimate(selectedEstimate.id)} style={{ color: "#c0392b" }}>
+              <button
+                className="reset-button"
+                onClick={() => exportEstimatePDF(selectedEstimate)}
+              >
+                PDF
+              </button>
+
+              <button
+                className="reset-button"
+                onClick={() => exportEstimateExcel(selectedEstimate)}
+                title="Экспорт CSV-файла, совместимого с Excel"
+              >
+                CSV для Excel
+              </button>
+
+              <button
+                className="reset-button"
+                onClick={() => deleteEstimate(selectedEstimate.id)}
+                style={{ color: "#c0392b" }}
+              >
                 <Trash2 size={17} /> Удалить смету
               </button>
             </div>
           </div>
 
           <div className="stats">
-            <article><span>Всего позиций</span><strong>{selectedEstimate.items.length}</strong><small>Материалы и работы</small></article>
-            <article><span>Материалы</span><strong>{materials.length}</strong><small>Позиций материалов</small></article>
-            <article><span>Работы</span><strong>{works.length}</strong><small>Позиций работ</small></article>
-            <article><span>Итого</span><strong style={{ fontSize: 20 }}>{money(total)}</strong><small>Общая стоимость</small></article>
+            <article>
+              <span>Всего позиций</span>
+              <strong>{selectedEstimate.items.length}</strong>
+              <small>Материалы и работы</small>
+            </article>
+
+            <article>
+              <span>Материалы</span>
+              <strong>{materials.length}</strong>
+              <small>Позиций материалов</small>
+            </article>
+
+            <article>
+              <span>Работы</span>
+              <strong>{works.length}</strong>
+              <small>Позиций работ</small>
+            </article>
+
+            <article>
+              <span>Итого</span>
+              <strong style={{ fontSize: 20 }}>{money(total)}</strong>
+              <small>Общая стоимость</small>
+            </article>
           </div>
 
           <div className="section-heading">
-            <div><h2>Позиции сметы</h2><p>Добавляйте материалы и работы для расчёта стоимости</p></div>
+            <div>
+              <h2>Позиции сметы</h2>
+              <p>
+                Добавляйте материалы и работы для расчёта стоимости
+              </p>
+            </div>
           </div>
 
           <div className="notice" style={{ display: "block" }}>
             <form onSubmit={saveEstimateItem}>
-              <h3 style={{ marginTop: 0 }}>{editingItemId !== null ? "Редактирование позиции" : "Добавить позицию"}</h3>
+              <h3 style={{ marginTop: 0 }}>
+                {editingItemId !== null
+                  ? "Редактирование позиции"
+                  : "Добавить позицию"}
+              </h3>
 
-              <label style={{ display: "block", marginBottom: 8 }}>Тип позиции</label>
-              <select value={itemCategory} onChange={e => setItemCategory(e.target.value as "Материал" | "Работа")}
-                style={{ padding: 11, borderRadius: 8, width: "100%", marginBottom: 14 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Тип позиции
+              </label>
+
+              <select
+                value={itemCategory}
+                onChange={e =>
+                  setItemCategory(
+                    e.target.value as "Материал" | "Работа"
+                  )
+                }
+                style={{
+                  padding: 11,
+                  borderRadius: 8,
+                  width: "100%",
+                  marginBottom: 14
+                }}
+              >
                 <option value="Материал">Материал</option>
                 <option value="Работа">Работа</option>
               </select>
 
-              <label style={{ display: "block", marginBottom: 8 }}>Наименование</label>
-              <input required value={itemName} onChange={e => setItemName(e.target.value)}
-                placeholder="Например, кабель ВВГнг-LS 3×2,5"
-                style={{ padding: 12, borderRadius: 8, width: "100%", marginBottom: 14, boxSizing: "border-box" }} />
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Наименование
+              </label>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12 }}>
-                <label>Единица измерения
-                  <input value={itemUnit} onChange={e => setItemUnit(e.target.value)}
+              <input
+                required
+                value={itemName}
+                onChange={e => setItemName(e.target.value)}
+                placeholder="Например, кабель ВВГнг-LS 3×2,5"
+                style={{
+                  padding: 12,
+                  borderRadius: 8,
+                  width: "100%",
+                  marginBottom: 14,
+                  boxSizing: "border-box"
+                }}
+              />
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                  gap: 12
+                }}
+              >
+                <label>
+                  Единица измерения
+                  <input
+                    value={itemUnit}
+                    onChange={e => setItemUnit(e.target.value)}
                     placeholder="м, шт., усл."
-                    style={{ display: "block", padding: 11, borderRadius: 8, width: "100%", marginTop: 7, boxSizing: "border-box" }} />
+                    style={{
+                      display: "block",
+                      padding: 11,
+                      borderRadius: 8,
+                      width: "100%",
+                      marginTop: 7,
+                      boxSizing: "border-box"
+                    }}
+                  />
                 </label>
-                <label>Количество
-                  <input required type="number" min="0.001" step="any" value={itemQuantity}
+
+                <label>
+                  Количество
+                  <input
+                    required
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    value={itemQuantity}
                     onChange={e => setItemQuantity(e.target.value)}
-                    style={{ display: "block", padding: 11, borderRadius: 8, width: "100%", marginTop: 7, boxSizing: "border-box" }} />
+                    style={{
+                      display: "block",
+                      padding: 11,
+                      borderRadius: 8,
+                      width: "100%",
+                      marginTop: 7,
+                      boxSizing: "border-box"
+                    }}
+                  />
                 </label>
-                <label>Цена за единицу, ₽
-                  <input required type="number" min="0" step="any" value={itemPrice}
+
+                <label>
+                  Цена за единицу, ₽
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={itemPrice}
                     onChange={e => setItemPrice(e.target.value)}
-                    style={{ display: "block", padding: 11, borderRadius: 8, width: "100%", marginTop: 7, boxSizing: "border-box" }} />
+                    style={{
+                      display: "block",
+                      padding: 11,
+                      borderRadius: 8,
+                      width: "100%",
+                      marginTop: 7,
+                      boxSizing: "border-box"
+                    }}
+                  />
                 </label>
               </div>
 
               <p style={{ marginTop: 14 }}>
-                Стоимость позиции: <b>{money((Number(itemQuantity) || 0) * (Number(itemPrice) || 0))}</b>
+                Стоимость позиции:{" "}
+                <b>
+                  {money(
+                    (parseNumber(itemQuantity) || 0) *
+                    (parseNumber(itemPrice) || 0)
+                  )}
+                </b>
               </p>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  marginTop: 14
+                }}
+              >
                 <button className="primary-button" type="submit">
-                  <Plus size={17} /> {editingItemId !== null ? "Сохранить позицию" : "Добавить позицию"}
+                  <Plus size={17} />
+                  {editingItemId !== null
+                    ? "Сохранить позицию"
+                    : "Добавить позицию"}
                 </button>
+
                 {editingItemId !== null && (
-                  <button type="button" className="reset-button" onClick={resetItemForm}>Отмена</button>
+                  <button
+                    type="button"
+                    className="reset-button"
+                    onClick={resetItemForm}
+                  >
+                    Отмена
+                  </button>
                 )}
               </div>
             </form>
@@ -788,20 +1526,53 @@ export default function Home() {
           {selectedEstimate.items.length === 0 ? (
             <div className="notice" style={{ marginTop: 20 }}>
               <ClipboardList size={24} />
-              <div><b>Смета пока пустая</b><p>Добавьте первую позицию с помощью формы выше.</p></div>
+
+              <div>
+                <b>Смета пока пустая</b>
+                <p>
+                  Добавьте первую позицию с помощью формы выше.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="project-list" style={{ marginTop: 20 }}>
               {selectedEstimate.items.map(item => (
-                <article className="project-row" key={item.id} style={{ cursor: "default" }}>
-                  <div className="project-icon"><ClipboardList /></div>
+                <article
+                  className="project-row"
+                  key={item.id}
+                  style={{ cursor: "default" }}
+                >
+                  <div className="project-icon">
+                    <ClipboardList />
+                  </div>
+
                   <div className="project-name">
                     <b>{item.name}</b>
-                    <small>{item.category} · {item.quantity} {item.unit} × {money(item.price)}</small>
+                    <small>
+                      {item.category} · {item.quantity} {item.unit} ×{" "}
+                      {money(item.price)}
+                    </small>
                   </div>
-                  <strong>{money(item.quantity * item.price)}</strong>
-                  <button className="icon-button" aria-label="Редактировать" onClick={() => editItem(item)}><Pencil size={17} /></button>
-                  <button className="icon-button" aria-label="Удалить" onClick={() => deleteEstimateItem(item.id)}><Trash2 size={17} /></button>
+
+                  <strong>
+                    {money(item.quantity * item.price)}
+                  </strong>
+
+                  <button
+                    className="icon-button"
+                    aria-label="Редактировать позицию"
+                    onClick={() => editItem(item)}
+                  >
+                    <Pencil size={17} />
+                  </button>
+
+                  <button
+                    className="icon-button"
+                    aria-label="Удалить позицию"
+                    onClick={() => deleteEstimateItem(item.id)}
+                  >
+                    <Trash2 size={17} />
+                  </button>
                 </article>
               ))}
             </div>
@@ -810,8 +1581,31 @@ export default function Home() {
           <div className="notice" style={{ marginTop: 20 }}>
             <div style={{ width: "100%" }}>
               <h2 style={{ marginTop: 0 }}>Итоговая стоимость</h2>
-              <p>Материалы: <b>{money(materials.reduce((s, i) => s + i.quantity * i.price, 0))}</b></p>
-              <p>Работы: <b>{money(works.reduce((s, i) => s + i.quantity * i.price, 0))}</b></p>
+
+              <p>
+                Материалы:{" "}
+                <b>
+                  {money(
+                    materials.reduce(
+                      (sum, item) => sum + item.quantity * item.price,
+                      0
+                    )
+                  )}
+                </b>
+              </p>
+
+              <p>
+                Работы:{" "}
+                <b>
+                  {money(
+                    works.reduce(
+                      (sum, item) => sum + item.quantity * item.price,
+                      0
+                    )
+                  )}
+                </b>
+              </p>
+
               <h2 style={{ marginBottom: 0 }}>{money(total)}</h2>
             </div>
           </div>
@@ -825,63 +1619,151 @@ export default function Home() {
           <div>
             <span className="eyebrow">РАБОЧАЯ ОБЛАСТЬ</span>
             <h1>Сметы</h1>
-            <p>Создавайте расчёты стоимости материалов и электромонтажных работ.</p>
+            <p>
+              Создавайте расчёты стоимости материалов и электромонтажных работ.
+            </p>
           </div>
-          <button className="primary-button" onClick={openNewEstimate}>
+
+          <button
+            className="primary-button"
+            onClick={openNewEstimate}
+          >
             <Plus size={19} /> Создать смету
           </button>
         </div>
 
         <div className="notice">
           <ClipboardList size={23} />
+
           <div>
             <b>Рабочий раздел смет</b>
-            <p>Сметы сохраняются в браузере. Вы можете создавать несколько смет и связывать их с проектами.</p>
+            <p>
+              Сметы сохраняются в браузере. Вы можете создавать несколько
+              смет и связывать их с проектами.
+            </p>
           </div>
         </div>
 
         <div className="stats">
-          <article><span>Всего смет</span><strong>{estimates.length.toString().padStart(2, "0")}</strong><small>Созданные документы</small></article>
-          <article><span>Общая стоимость</span><strong style={{ fontSize: 19 }}>{money(estimates.reduce((s, e) => s + estimateTotal(e), 0))}</strong><small>По всем сметам</small></article>
-          <article><span>Материалы</span><strong>{estimates.reduce((s, e) => s + e.items.filter(i => i.category === "Материал").length, 0)}</strong><small>Позиций</small></article>
-          <article><span>Работы</span><strong>{estimates.reduce((s, e) => s + e.items.filter(i => i.category === "Работа").length, 0)}</strong><small>Позиций</small></article>
+          <article>
+            <span>Всего смет</span>
+            <strong>{estimates.length.toString().padStart(2, "0")}</strong>
+            <small>Созданные документы</small>
+          </article>
+
+          <article>
+            <span>Общая стоимость</span>
+            <strong style={{ fontSize: 19 }}>
+              {money(
+                estimates.reduce(
+                  (sum, estimate) => sum + estimateTotal(estimate),
+                  0
+                )
+              )}
+            </strong>
+            <small>По всем сметам</small>
+          </article>
+
+          <article>
+            <span>Материалы</span>
+            <strong>
+              {estimates.reduce(
+                (sum, estimate) =>
+                  sum + estimate.items.filter(
+                    item => item.category === "Материал"
+                  ).length,
+                0
+              )}
+            </strong>
+            <small>Позиций</small>
+          </article>
+
+          <article>
+            <span>Работы</span>
+            <strong>
+              {estimates.reduce(
+                (sum, estimate) =>
+                  sum + estimate.items.filter(
+                    item => item.category === "Работа"
+                  ).length,
+                0
+              )}
+            </strong>
+            <small>Позиций</small>
+          </article>
         </div>
 
         <div className="section-heading">
-          <div><h2>Мои сметы</h2><p>Откройте смету, чтобы посмотреть и изменить её позиции</p></div>
+          <div>
+            <h2>Мои сметы</h2>
+            <p>
+              Откройте смету, чтобы посмотреть и изменить её позиции
+            </p>
+          </div>
         </div>
 
         <div className="project-list">
           {estimates.map(estimate => {
-            const project = projects.find(p => p.id === estimate.projectId);
+            const project = projects.find(
+              p => p.id === estimate.projectId
+            );
+
             return (
-              <article className="project-row" key={estimate.id}
-                onClick={() => setSelectedEstimateId(estimate.id)} style={{ cursor: "pointer" }}>
-                <div className="project-icon"><ClipboardList /></div>
+              <article
+                className="project-row"
+                key={estimate.id}
+                onClick={() => setSelectedEstimateId(estimate.id)}
+                style={{ cursor: "pointer" }}
+              >
+                <div className="project-icon">
+                  <ClipboardList />
+                </div>
+
                 <div className="project-name">
                   <b>{estimate.name}</b>
-                  <small>{project ? project.name : "Без привязки к проекту"} · {estimate.date} · {estimate.items.length} поз.</small>
+                  <small>
+                    {project
+                      ? project.name
+                      : "Без привязки к проекту"}
+                    {" · "}{estimate.date}
+                    {" · "}{estimate.items.length} поз.
+                  </small>
                 </div>
+
                 <strong>{money(estimateTotal(estimate))}</strong>
+
                 <ChevronRight className="row-arrow" size={19} />
               </article>
             );
           })}
-          {!estimates.length && <p className="empty">Смет пока нет. Нажмите «Создать смету», чтобы начать.</p>}
+
+          {!estimates.length && (
+            <p className="empty">
+              Смет пока нет. Нажмите «Создать смету», чтобы начать.
+            </p>
+          )}
         </div>
       </>
     );
   }
 
+  // Остальные разделы.
   function renderOtherSection() {
     const descriptions: Record<string, string> = {
-      "Инженерные расчёты": "Здесь будут расчёты кабеля, автоматических выключателей, УЗО и дифавтоматов. Результаты будут предварительными и потребуют инженерной проверки.",
-      "Каталог материалов": "Здесь будет каталог кабелей, автоматов, УЗО, розеток, выключателей и других материалов с возможностью добавлять собственные позиции.",
-      "Документы": "Здесь будут храниться документы и файлы, связанные с проектами.",
-      "Обучение": "Здесь появятся справочники, инструкции, схемы подключения и учебные материалы."
+      "Инженерные расчёты":
+        "Здесь будут расчёты кабеля, автоматических выключателей, УЗО и дифавтоматов. Результаты будут предварительными и потребуют инженерной проверки.",
+
+      "Каталог материалов":
+        "Здесь будет каталог кабелей, автоматов, УЗО, розеток, выключателей и других материалов с возможностью добавлять собственные позиции.",
+
+      "Документы":
+        "Здесь будут храниться документы и файлы, связанные с проектами.",
+
+      "Обучение":
+        "Здесь появятся справочники, инструкции, схемы подключения и учебные материалы."
     };
 
-    const icons: Record<string, React.ElementType> = {
+    const icons: Record<string, ElementType> = {
       "Инженерные расчёты": Calculator,
       "Каталог материалов": Cable,
       "Документы": FileText,
@@ -896,36 +1778,67 @@ export default function Home() {
           <div>
             <span className="eyebrow">РАБОЧАЯ ОБЛАСТЬ</span>
             <h1>{active}</h1>
-            <p>{descriptions[active]}</p>
+            <p>{descriptions[active] || "Раздел ElectroMaster."}</p>
           </div>
         </div>
+
         <div className="notice">
           <Icon size={25} />
+
           <div>
             <b>Раздел подготовлен к разработке</b>
-            <p>Функциональность этого раздела реализуем следующим этапом.</p>
+            <p>
+              Функциональность этого раздела реализуем следующим этапом.
+            </p>
           </div>
         </div>
+
         <div className="section-heading">
-          <div><h2>Связанные проекты</h2><p>Выберите объект для дальнейшей работы</p></div>
-          <button className="text-button" onClick={() => setActive("Мои проекты")}>Все проекты <ChevronRight size={17} /></button>
+          <div>
+            <h2>Связанные проекты</h2>
+            <p>Выберите объект для дальнейшей работы</p>
+          </div>
+
+          <button
+            className="text-button"
+            onClick={() => setActive("Мои проекты")}
+          >
+            Все проекты <ChevronRight size={17} />
+          </button>
         </div>
+
         <div className="project-list">
           {projects.slice(0, 3).map(project => (
-            <article className="project-row" key={project.id}
-              onClick={() => setSelectedId(project.id)} style={{ cursor: "pointer" }}>
+            <article
+              className="project-row"
+              key={project.id}
+              onClick={() => setSelectedId(project.id)}
+              style={{ cursor: "pointer" }}
+            >
               <div className="project-icon"><House /></div>
-              <div className="project-name"><b>{project.name}</b><small>{project.client}</small></div>
-              <span className={`status ${project.status === "Завершён" ? "done" : ""}`}>{project.status}</span>
+
+              <div className="project-name">
+                <b>{project.name}</b>
+                <small>{project.client}</small>
+              </div>
+
+              <span className={`status ${project.status === "Завершён" ? "done" : ""}`}>
+                {project.status}
+              </span>
+
               <ChevronRight className="row-arrow" size={19} />
             </article>
           ))}
-          {!projects.length && <p className="empty">Сначала создайте проект.</p>}
+
+          {!projects.length && (
+            <p className="empty">Сначала создайте проект.</p>
+          )}
         </div>
       </>
     );
   }
 
+  // Пока данные не загружены, не показываем интерфейс.
   if (!loaded) return null;
 
   return (
@@ -933,29 +1846,46 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-icon"><Activity /></div>
-          <div><b>ElectroMaster</b><small>РАБОЧЕЕ ПРОСТРАНСТВО</small></div>
+
+          <div>
+            <b>ElectroMaster</b>
+            <small>РАБОЧЕЕ ПРОСТРАНСТВО</small>
+          </div>
         </div>
 
         <div className="workspace">
           <div className="workspace-icon"><House /></div>
-          <div><b>Моя мастерская</b><small>Личный кабинет</small></div>
+
+          <div>
+            <b>Моя мастерская</b>
+            <small>Личный кабинет</small>
+          </div>
+
           <ChevronDown size={17} />
         </div>
 
         <div className="nav-title">РАБОЧАЯ ОБЛАСТЬ</div>
+
         <nav>
           {navigation.map(item => {
             const Icon = item.icon;
+
             return (
-              <button key={item.name}
-                className={active === item.name ? "nav-item selected" : "nav-item"}
+              <button
+                key={item.name}
+                className={
+                  active === item.name
+                    ? "nav-item selected"
+                    : "nav-item"
+                }
                 onClick={() => {
                   setActive(item.name);
                   setSelectedId(null);
                   setSelectedEstimateId(null);
                   resetItemForm();
                   setSearch("");
-                }}>
+                }}
+              >
                 <Icon size={19} />
                 <span>{item.name}</span>
               </button>
@@ -967,12 +1897,26 @@ export default function Home() {
           <div className="help-card">
             <LifeBuoy size={20} />
             <b>Нужна помощь?</b>
-            <p>Подсказки и материалы для работы с платформой.</p>
+            <p>
+              Подсказки и материалы для работы с платформой.
+            </p>
           </div>
-          <button className="nav-item"><Settings size={19} />Настройки</button>
+
+          <button
+            className="nav-item"
+            onClick={() => alert("Раздел настроек будет реализован отдельно.")}
+          >
+            <Settings size={19} />
+            Настройки
+          </button>
+
           <div className="profile">
             <div className="avatar">ЭМ</div>
-            <div><b>Электромонтажник</b><small>Демонстрационный аккаунт</small></div>
+
+            <div>
+              <b>Электромонтажник</b>
+              <small>Демонстрационный аккаунт</small>
+            </div>
           </div>
         </div>
       </aside>
@@ -981,104 +1925,241 @@ export default function Home() {
         <header className="topbar">
           <div className="breadcrumbs">
             ElectroMaster <ChevronRight size={15} />
-            <b>{selectedProject ? selectedProject.name : selectedEstimate ? selectedEstimate.name : active}</b>
+
+            <b>
+              {selectedProject
+                ? selectedProject.name
+                : selectedEstimate
+                  ? selectedEstimate.name
+                  : active}
+            </b>
           </div>
+
           <div className="top-actions">
             <span className="demo-label">● Демо-режим</span>
-            <button className="icon-button" aria-label="Уведомления"><Bell /></button>
+
+            <button
+              className="icon-button"
+              aria-label="Уведомления"
+              title="Уведомления пока недоступны"
+              onClick={() =>
+                alert("Центр уведомлений будет добавлен следующим этапом.")
+              }
+            >
+              <Bell />
+            </button>
+
             <div className="avatar">ЭМ</div>
           </div>
         </header>
 
         <section className="content">
-          {selectedProject
-            ? renderProjectDetails(selectedProject)
-            : active === "Рабочий стол"
-              ? renderDashboard()
-              : active === "Мои проекты"
-                ? renderProjects()
-                : active === "Чертежи и планы"
-                  ? (
-                      <FloorPlanEditor
-                        projects={projects.map(project => ({
-                          id: project.id,
-                          name: project.name
-                        }))}
-                      />
-                    )
-                  : active === "Сметы"
-                    ? renderEstimates()
-                    : renderOtherSection()}
+          {selectedProject ? (
+            renderProjectDetails(selectedProject)
+          ) : active === "Рабочий стол" ? (
+            renderDashboard()
+          ) : active === "Мои проекты" ? (
+            renderProjects()
+          ) : active === "Чертежи и планы" ? (
+            <FloorPlanEditor
+              projects={projects.map(project => ({
+                id: project.id,
+                name: project.name
+              }))}
+            />
+          ) : active === "Сметы" ? (
+            renderEstimates()
+          ) : (
+            renderOtherSection()
+          )}
 
-          <footer>© 2026 ElectroMaster <span>Платформа для электромонтажников</span></footer>
+          <footer>
+            © 2026 ElectroMaster
+            <span>Платформа для электромонтажников</span>
+          </footer>
         </section>
       </main>
 
+      {/* Окно создания и редактирования проекта. */}
       {modal && (
-        <div className="modal-overlay">
+        <div
+          className="modal-overlay"
+          onMouseDown={e => {
+            if (e.target === e.currentTarget) {
+              setModal(false);
+            }
+          }}
+        >
           <form className="modal" onSubmit={saveProject}>
-            <button type="button" className="modal-close" onClick={() => setModal(false)}><X /></button>
-            <h2>{editingId !== null ? "Редактирование проекта" : "Новый проект"}</h2>
-            <p>{editingId !== null ? "Измените данные объекта" : "Добавьте объект в список проектов"}</p>
+            <button
+              type="button"
+              className="modal-close"
+              onClick={() => setModal(false)}
+              aria-label="Закрыть"
+            >
+              <X />
+            </button>
 
-            <label>Название проекта
-              <input required value={name} onChange={e => setName(e.target.value)} placeholder="Например, электрика в квартире" />
+            <h2>
+              {editingId !== null
+                ? "Редактирование проекта"
+                : "Новый проект"}
+            </h2>
+
+            <p>
+              {editingId !== null
+                ? "Измените данные объекта"
+                : "Добавьте объект в список проектов"}
+            </p>
+
+            <label>
+              Название проекта
+              <input
+                required
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Например, электрика в квартире"
+              />
             </label>
-            <label>Заказчик
-              <input value={client} onChange={e => setClient(e.target.value)} placeholder="Имя заказчика" />
+
+            <label>
+              Заказчик
+              <input
+                value={client}
+                onChange={e => setClient(e.target.value)}
+                placeholder="Имя заказчика"
+              />
             </label>
-            <label>Адрес объекта
-              <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Адрес объекта" />
+
+            <label>
+              Адрес объекта
+              <input
+                value={address}
+                onChange={e => setAddress(e.target.value)}
+                placeholder="Адрес объекта"
+              />
             </label>
-            <label>Описание
-              <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Дополнительная информация" rows={3} />
+
+            <label>
+              Описание
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="Дополнительная информация"
+                rows={3}
+              />
             </label>
 
             {editingId !== null && (
               <>
-                <label>Статус
-                  <select value={status} onChange={e => setStatus(e.target.value)}>
-                    {statuses.map(value => <option key={value}>{value}</option>)}
+                <label>
+                  Статус
+                  <select
+                    value={status}
+                    onChange={e => setStatus(e.target.value)}
+                  >
+                    {statuses.map(value => (
+                      <option key={value}>{value}</option>
+                    ))}
                   </select>
                 </label>
-                <label>Готовность: {progress}%
-                  <input type="range" min="0" max="100" value={progress} onChange={e => setProgress(Number(e.target.value))} />
+
+                <label>
+                  Готовность: {progress}%
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={progress}
+                    onChange={e =>
+                      setProgress(Number(e.target.value))
+                    }
+                  />
                 </label>
               </>
             )}
 
             <div className="modal-actions">
-              <button type="button" className="reset-button" onClick={() => setModal(false)}>Отмена</button>
-              <button className="primary-button" type="submit">{editingId !== null ? "Сохранить" : "Создать"}</button>
+              <button
+                type="button"
+                className="reset-button"
+                onClick={() => setModal(false)}
+              >
+                Отмена
+              </button>
+
+              <button className="primary-button" type="submit">
+                {editingId !== null ? "Сохранить" : "Создать"}
+              </button>
             </div>
           </form>
         </div>
       )}
 
+      {/* Окно создания сметы. */}
       {estimateModal && (
-        <div className="modal-overlay">
+        <div
+          className="modal-overlay"
+          onMouseDown={e => {
+            if (e.target === e.currentTarget) {
+              setEstimateModal(false);
+            }
+          }}
+        >
           <form className="modal" onSubmit={saveEstimate}>
-            <button type="button" className="modal-close" onClick={() => setEstimateModal(false)}><X /></button>
-            <h2>Новая смета</h2>
-            <p>Создайте документ и при необходимости привяжите его к проекту.</p>
+            <button
+              type="button"
+              className="modal-close"
+              onClick={() => setEstimateModal(false)}
+              aria-label="Закрыть"
+            >
+              <X />
+            </button>
 
-            <label>Название сметы
-              <input required value={estimateName} onChange={e => setEstimateName(e.target.value)}
-                placeholder="Например, электромонтаж частного дома" />
+            <h2>Новая смета</h2>
+
+            <p>
+              Создайте документ и при необходимости привяжите его к проекту.
+            </p>
+
+            <label>
+              Название сметы
+              <input
+                required
+                value={estimateName}
+                onChange={e => setEstimateName(e.target.value)}
+                placeholder="Например, электромонтаж частного дома"
+              />
             </label>
 
-            <label>Связанный проект
-              <select value={estimateProjectId} onChange={e => setEstimateProjectId(e.target.value)}>
+            <label>
+              Связанный проект
+              <select
+                value={estimateProjectId}
+                onChange={e => setEstimateProjectId(e.target.value)}
+              >
                 <option value="">Без привязки</option>
+
                 {projects.map(project => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
                 ))}
               </select>
             </label>
 
             <div className="modal-actions">
-              <button type="button" className="reset-button" onClick={() => setEstimateModal(false)}>Отмена</button>
-              <button className="primary-button" type="submit"><Plus size={17} /> Создать смету</button>
+              <button
+                type="button"
+                className="reset-button"
+                onClick={() => setEstimateModal(false)}
+              >
+                Отмена
+              </button>
+
+              <button className="primary-button" type="submit">
+                <Plus size={17} /> Создать смету
+              </button>
             </div>
           </form>
         </div>
