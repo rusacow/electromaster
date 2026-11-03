@@ -164,30 +164,32 @@ const [selectedEstimateId, setSelectedEstimateId] = useState<number | null>(() =
     localStorage.setItem("electromaster-estimates", JSON.stringify(estimates));
   }, [estimates, loaded]);
   useEffect(() => {
+  
+useEffect(() => {
+  if (!loaded) return;
   localStorage.setItem("electromaster-active", active);
-}, [active]);
+}, [active, loaded]);
 
 useEffect(() => {
+  if (!loaded) return;
+
   if (selectedId === null) {
     localStorage.removeItem("electromaster-selected-project");
   } else {
     localStorage.setItem("electromaster-selected-project", String(selectedId));
   }
-}, [selectedId]);
+}, [selectedId, loaded]);
 
 useEffect(() => {
+  if (!loaded) return;
+
   if (selectedEstimateId === null) {
     localStorage.removeItem("electromaster-selected-estimate");
   } else {
     localStorage.setItem("electromaster-selected-estimate", String(selectedEstimateId));
   }
-}, [selectedEstimateId]);
+}, [selectedEstimateId, loaded]);
 
-  const filtered = projects.filter(project =>
-    `${project.name} ${project.client} ${project.address}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
 
   const selectedProject = projects.find(p => p.id === selectedId);
   const selectedEstimate = estimates.find(e => e.id === selectedEstimateId);
